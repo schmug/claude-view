@@ -7,18 +7,18 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
-    --bg: #1a1a2e;
-    --surface: #16213e;
-    --surface2: #0f3460;
-    --text: #e0e0e0;
-    --text-dim: #8888aa;
-    --accent: #7c3aed;
-    --green: #22c55e;
-    --amber: #f59e0b;
-    --red: #ef4444;
-    --blue: #3b82f6;
-    --user-green: #166534;
-    --idle-yellow: #854d0e;
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242836;
+    --text: #e2e4ea;
+    --text-dim: #6b7084;
+    --accent: #8b5cf6;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --user-green: #065f46;
+    --idle-yellow: #78350f;
   }
   html, body {
     height: 100%; overflow: hidden;
@@ -32,7 +32,7 @@
   #topbar {
     background: var(--surface); padding: 12px 16px;
     display: flex; align-items: center; gap: 10px;
-    border-bottom: 1px solid #ffffff12;
+    border-bottom: 1px solid #ffffff0a;
     flex-shrink: 0;
   }
   #conn-dot {
@@ -63,23 +63,23 @@
 
   /* Activity: dimmed, left-aligned */
   .msg.activity {
-    background: #ffffff08; color: var(--text-dim); font-size: 13px;
+    background: #ffffff06; color: var(--text-dim); font-size: 13px;
     border-radius: 8px; padding: 6px 12px; align-self: flex-start;
   }
 
   /* Notifications by level */
   .msg.notification { align-self: flex-start; }
-  .msg.notification.info { background: #1e3a5f; border-left: 3px solid var(--blue); }
-  .msg.notification.warning { background: #3d2e0a; border-left: 3px solid var(--amber); }
-  .msg.notification.error { background: #3d0a0a; border-left: 3px solid var(--red); }
-  .msg.notification.success { background: #0a3d1a; border-left: 3px solid var(--green); }
+  .msg.notification.info { background: #1e293b; border-left: 3px solid var(--blue); }
+  .msg.notification.warning { background: #2a2011; border-left: 3px solid var(--amber); }
+  .msg.notification.error { background: #2a1215; border-left: 3px solid var(--red); }
+  .msg.notification.success { background: #0d2818; border-left: 3px solid var(--green); }
 
   /* Question: purple card */
   .msg.question {
-    background: #2d1b69; border: 1px solid var(--accent);
+    background: #1e1338; border: 1px solid #8b5cf680;
     align-self: flex-start; width: 95%;
   }
-  .msg.question.answered { opacity: 0.5; border-color: #555; }
+  .msg.question.answered { opacity: 0.45; border-color: #3a3a4a; }
   .question-text { margin-bottom: 10px; font-weight: 500; }
   .question-options { display: flex; flex-wrap: wrap; gap: 8px; }
   .question-options button {
@@ -87,7 +87,7 @@
     padding: 8px 16px; border-radius: 20px; font-size: 14px;
     cursor: pointer; transition: background 0.15s;
   }
-  .question-options button:active { background: #6d28d9; }
+  .question-options button:active { background: #7c3aed; }
   .question-options button:disabled { opacity: 0.4; cursor: default; }
 
   /* User messages: right-aligned */
@@ -105,24 +105,64 @@
 
   /* Idle prompt */
   .msg.idle {
-    background: #3d2e0a; border: 1px solid var(--amber);
+    background: #2a2011; border: 1px solid var(--amber);
     align-self: center; text-align: center; font-size: 14px;
   }
 
+  /* Tabs */
+  #tabs {
+    display: flex; background: var(--surface);
+    border-bottom: 1px solid #ffffff0a; flex-shrink: 0;
+  }
+  .tab {
+    flex: 1; padding: 8px 0; text-align: center; font-size: 13px;
+    font-weight: 500; color: var(--text-dim); cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.2s;
+    background: none; border-top: none; border-left: none; border-right: none;
+    font-family: inherit;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-badge {
+    display: inline-block; min-width: 16px; height: 16px; line-height: 16px;
+    border-radius: 8px; background: var(--accent); color: white;
+    font-size: 10px; text-align: center; margin-left: 4px; padding: 0 4px;
+  }
+
+  /* Message panels */
+  .msg-panel { flex: 1; overflow-y: auto; padding: 12px 16px;
+    display: none; flex-direction: column; gap: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .msg-panel.active { display: flex; }
+
   /* Timestamp */
   .msg-time { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+  /* Notification permission banner */
+  #notif-banner {
+    background: var(--surface2); padding: 8px 16px;
+    display: none; align-items: center; justify-content: space-between;
+    font-size: 13px; flex-shrink: 0;
+  }
+  #notif-banner button {
+    background: var(--accent); color: white; border: none;
+    padding: 4px 12px; border-radius: 12px; font-size: 12px; cursor: pointer;
+  }
+  #notif-banner .dismiss {
+    background: none; color: var(--text-dim); padding: 4px 8px;
+  }
 
   /* Input bar */
   #inputbar {
     background: var(--surface); padding: 10px 12px;
     display: flex; gap: 8px; align-items: center;
-    border-top: 1px solid #ffffff12;
+    border-top: 1px solid #ffffff0a;
     flex-shrink: 0;
     padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
   #input {
     flex: 1; background: var(--bg); color: var(--text);
-    border: 1px solid #ffffff20; border-radius: 22px;
+    border: 1px solid #ffffff15; border-radius: 22px;
     padding: 10px 16px; font-size: 15px; outline: none;
     font-family: inherit;
   }
@@ -133,7 +173,7 @@
     font-size: 20px; cursor: pointer; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
   }
-  #send-btn:active { background: #6d28d9; }
+  #send-btn:active { background: #7c3aed; }
 </style>
 </head>
 <body>
@@ -143,7 +183,19 @@
     <div id="topbar-title">Claude View</div>
     <div id="topbar-status"></div>
   </div>
-  <div id="messages"></div>
+  <div id="tabs">
+    <button class="tab active" data-tab="chat">Chat</button>
+    <button class="tab" data-tab="activity">Activity</button>
+  </div>
+  <div id="notif-banner">
+    <span>Enable push notifications?</span>
+    <span>
+      <button id="notif-enable">Enable</button>
+      <button class="dismiss" id="notif-dismiss">No</button>
+    </span>
+  </div>
+  <div id="chat-panel" class="msg-panel active"></div>
+  <div id="activity-panel" class="msg-panel"></div>
   <div id="inputbar">
     <input id="input" type="text" placeholder="Send instruction..." autocomplete="off" />
     <button id="send-btn">&#9654;</button>
@@ -165,17 +217,74 @@
     return;
   }
 
-  const messagesEl = document.getElementById("messages");
+  const chatPanel = document.getElementById("chat-panel");
+  const activityPanel = document.getElementById("activity-panel");
   const inputEl = document.getElementById("input");
   const sendBtn = document.getElementById("send-btn");
   const connDot = document.getElementById("conn-dot");
   const statusText = document.getElementById("topbar-status");
+  const tabs = document.querySelectorAll(".tab");
+  const notifBanner = document.getElementById("notif-banner");
 
+  let activeTab = "chat";
   let hasPendingQuestion = false;
   let pendingQuestionId = null;
   let seenIds = new Set();
+  let activityCount = 0;
   let titleFlashInterval = null;
   const originalTitle = document.title;
+
+  // Tab switching
+  tabs.forEach(function(tab) {
+    tab.addEventListener("click", function() {
+      activeTab = tab.dataset.tab;
+      tabs.forEach(function(t) { t.classList.remove("active"); });
+      tab.classList.add("active");
+      chatPanel.classList.toggle("active", activeTab === "chat");
+      activityPanel.classList.toggle("active", activeTab === "activity");
+      if (activeTab === "activity") {
+        activityCount = 0;
+        var badge = tab.querySelector(".tab-badge");
+        if (badge) badge.remove();
+        autoScroll();
+      }
+    });
+  });
+
+  function bumpActivityBadge() {
+    if (activeTab === "activity") return;
+    activityCount++;
+    var actTab = document.querySelector('.tab[data-tab="activity"]');
+    var badge = actTab.querySelector(".tab-badge");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "tab-badge";
+      actTab.appendChild(badge);
+    }
+    badge.textContent = activityCount > 99 ? "99+" : activityCount;
+  }
+
+  // Push notifications
+  var pushEnabled = false;
+  if ("Notification" in window && Notification.permission === "default") {
+    notifBanner.style.display = "flex";
+  }
+  document.getElementById("notif-enable").addEventListener("click", function() {
+    Notification.requestPermission().then(function(perm) {
+      pushEnabled = perm === "granted";
+      notifBanner.style.display = "none";
+    });
+  });
+  document.getElementById("notif-dismiss").addEventListener("click", function() {
+    notifBanner.style.display = "none";
+  });
+  if ("Notification" in window && Notification.permission === "granted") {
+    pushEnabled = true;
+  }
+  function sendPushNotification(title, body) {
+    if (!pushEnabled || document.hasFocus()) return;
+    try { new Notification(title, { body: body, icon: "data:," }); } catch(e) {}
+  }
 
   // Audio context for beeps
   let audioCtx = null;
@@ -219,7 +328,8 @@
 
   function autoScroll() {
     requestAnimationFrame(function() {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      var panel = activeTab === "chat" ? chatPanel : activityPanel;
+      panel.scrollTop = panel.scrollHeight;
     });
   }
 
@@ -255,6 +365,8 @@
       textEl.textContent = msg.message;
       div.appendChild(textEl);
       div.appendChild(createTimeEl(msg.ts));
+      if (msg.level === "success") sendPushNotification("Task complete", msg.message);
+      if (msg.level === "error") sendPushNotification("Error", msg.message);
     }
     else if (msg.type === "question") {
       div.className = "msg question" + (msg.answered ? " answered" : "");
@@ -284,6 +396,7 @@
         updatePlaceholder();
         beep();
         flashTitle("Question from Claude");
+        sendPushNotification("Claude needs you", msg.question);
       }
     }
     else if (msg.type === "user") {
@@ -305,7 +418,15 @@
       div.appendChild(createTimeEl(msg.ts));
     }
 
-    messagesEl.appendChild(div);
+    chatPanel.appendChild(div);
+
+    // Mirror activity to activity panel
+    if (msg.type === "activity") {
+      var clone = div.cloneNode(true);
+      activityPanel.appendChild(clone);
+      bumpActivityBadge();
+    }
+
     autoScroll();
   }
 
@@ -361,8 +482,10 @@
   });
 
   socket.on("init", function(state) {
-    messagesEl.textContent = "";
+    chatPanel.textContent = "";
+    activityPanel.textContent = "";
     seenIds.clear();
+    activityCount = 0;
     hasPendingQuestion = state.hasPendingQuestion;
     pendingQuestionId = state.pendingQuestionId;
     if (state.status) statusText.textContent = state.status;
