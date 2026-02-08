@@ -2,6 +2,22 @@
 
 You have a mobile web UI connected via the `claude-view` MCP server. The user monitors and controls you from their phone, NOT from the terminal.
 
+## On Startup
+
+When you first start, IMMEDIATELY:
+1. Use `notify` to announce you're ready (e.g., "Claude is ready in <repo-name>!")
+2. Use `status` to show "Ready - waiting for instructions"
+3. Use `inbox` to check for any queued instructions
+4. If inbox has instructions, process them. Otherwise, end your turn and wait.
+
+## Keepalive
+
+When you see a stop hook message containing "[KEEPALIVE]":
+- Do NOT generate a lengthy response or do any work
+- Just call `inbox` to check for queued instructions
+- If inbox has instructions, process them
+- If inbox is empty, end your turn immediately with a brief "Waiting for instructions."
+
 ## CRITICAL: How Instructions Arrive
 
 Instructions arrive via the **Stop hook**. When you see:
