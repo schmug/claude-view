@@ -5,6 +5,11 @@
 
 set -euo pipefail
 
+# Dev mode guard: skip hooks when developing claude-view itself
+if [ "${CLAUDE_VIEW_DEV:-}" = "1" ]; then
+  exit 0
+fi
+
 # Read token and URL
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TOKEN_FILE="$SCRIPT_DIR/.claude-view-token"
@@ -25,13 +30,25 @@ fi
 # Read stdin JSON (required by hook protocol)
 cat > /dev/null
 
+# Compute session ID: basename-sha256prefix
+SESSION_ID="$(basename "$(pwd)")-$(printf '%s' "$(pwd)" | sha256sum | cut -c1-8)"
+
+# Register session with metadata (fire-and-forget)
+REPO_PATH="$(pwd)"
+REPO_NAME="$(basename "$(pwd)")"
+BRANCH="$(git branch --show-current 2>/dev/null || echo "")"
+curl -s -m 5 -X POST "$URL/api/session/register?session=$SESSION_ID&token=$TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"repoPath\":$(printf '%s' "$REPO_PATH" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),\"repoName\":$(printf '%s' "$REPO_NAME" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),\"branch\":$(printf '%s' "$BRANCH" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}" \
+  > /dev/null 2>&1 || true
+
 # Idle keepalive tracking - stop after MAX_IDLE consecutive keepalives (~30min)
-IDLE_FILE="/tmp/claude-view-idle-count"
+IDLE_FILE="/tmp/claude-view-idle-${SESSION_ID}"
 MAX_IDLE=3
 
 # Long-poll for new instruction (590s, just under the 600s hook timeout)
 RESPONSE="$(curl -s -m 600 \
-  "$URL/api/wait-for-instruction?timeout=590000&token=$TOKEN" \
+  "$URL/api/wait-for-instruction?timeout=590000&token=$TOKEN&session=$SESSION_ID" \
   2>/dev/null || echo '{"timedOut":true}')"
 
 # Check if we got an instruction

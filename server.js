@@ -51,14 +51,73 @@ class MessageStore {
   }
 }
 
-const store = new MessageStore();
+// --- Session class ---
 
-// --- Pending state ---
+class Session {
+  constructor(id) {
+    this.id = id;
+    this.store = new MessageStore();
+    this.inbox = [];
+    this.instructionWaiter = null; // { resolve, timer }
+    this.pendingQuestion = null;   // { id, resolve, timer }
+    this.status = "";
+    this.meta = {};                // { repoPath, repoName, branch }
+    this.lastActivity = Date.now();
+  }
 
-let pendingQuestion = null; // { id, resolve, timer }
-let inbox = [];
-let instructionWaiter = null; // { resolve, timer }
-let currentStatus = "";
+  touch() {
+    this.lastActivity = Date.now();
+  }
+}
+
+// --- Session management ---
+
+const sessions = new Map();
+const SESSION_EXPIRY_MS = 2 * 60 * 60 * 1000; // 2 hours
+const DEFAULT_SESSION = "_default";
+
+function getSession(id) {
+  const sessionId = id || DEFAULT_SESSION;
+  let session = sessions.get(sessionId);
+  if (!session) {
+    session = new Session(sessionId);
+    sessions.set(sessionId, session);
+  }
+  session.touch();
+  return session;
+}
+
+function getSessionList() {
+  return Array.from(sessions.values()).map((s) => ({
+    id: s.id,
+    meta: s.meta,
+    status: s.status,
+    hasPendingQuestion: !!s.pendingQuestion,
+    lastActivity: s.lastActivity,
+    messageCount: s.store.messages.length,
+  }));
+}
+
+// Auto-expire inactive sessions every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of sessions) {
+    if (now - session.lastActivity > SESSION_EXPIRY_MS) {
+      // Clean up any pending waiters
+      if (session.instructionWaiter) {
+        clearTimeout(session.instructionWaiter.timer);
+        session.instructionWaiter.resolve({ instruction: null, timedOut: true });
+      }
+      if (session.pendingQuestion) {
+        clearTimeout(session.pendingQuestion.timer);
+        session.pendingQuestion.resolve({ answer: null, timedOut: true });
+      }
+      sessions.delete(id);
+      io.emit("sessions-changed", getSessionList());
+      console.log(`Session expired: ${id}`);
+    }
+  }
+}, 10 * 60 * 1000);
 
 // --- Express + Socket.IO ---
 
@@ -92,66 +151,90 @@ io.use((socket, next) => {
 
 // --- Helper ---
 
-function broadcast(entry) {
-  io.emit("message", entry);
+function broadcast(sessionId, entry) {
+  io.emit("message", { ...entry, sessionId });
 }
 
 // --- API Endpoints ---
 
+// GET /api/sessions - list active sessions
+app.get("/api/sessions", auth, (req, res) => {
+  res.json({ sessions: getSessionList() });
+});
+
+// POST /api/session/register - register/update session metadata
+app.post("/api/session/register", auth, (req, res) => {
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
+  const { repoPath, repoName, branch } = req.body;
+  if (repoPath) session.meta.repoPath = repoPath;
+  if (repoName) session.meta.repoName = repoName;
+  if (branch) session.meta.branch = branch;
+  io.emit("sessions-changed", getSessionList());
+  res.json({ ok: true, sessionId: session.id });
+});
+
 // POST /api/activity - from PostToolUse hook (non-blocking)
 app.post("/api/activity", auth, (req, res) => {
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
   const { tool, summary } = req.body;
-  const entry = store.add({ type: "activity", tool, summary });
-  broadcast(entry);
+  const entry = session.store.add({ type: "activity", tool, summary });
+  broadcast(sessionId, entry);
   res.json({ ok: true, id: entry.id });
 });
 
 // POST /api/message - from MCP notify (non-blocking)
 app.post("/api/message", auth, (req, res) => {
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
   const { message, level } = req.body;
-  const entry = store.add({
+  const entry = session.store.add({
     type: "notification",
     message,
     level: level || "info",
   });
-  broadcast(entry);
+  broadcast(sessionId, entry);
   res.json({ ok: true, id: entry.id });
 });
 
 // POST /api/ask - from MCP ask (long-polls until user responds)
 app.post("/api/ask", auth, (req, res) => {
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
   const { question, options } = req.body;
 
-  // Cancel any existing pending question
-  if (pendingQuestion) {
-    clearTimeout(pendingQuestion.timer);
-    pendingQuestion.resolve({ answer: null, timedOut: true });
+  // Cancel any existing pending question for this session
+  if (session.pendingQuestion) {
+    clearTimeout(session.pendingQuestion.timer);
+    session.pendingQuestion.resolve({ answer: null, timedOut: true });
   }
 
-  const questionId = store.nextId;
-  const entry = store.add({
+  const questionId = session.store.nextId;
+  const entry = session.store.add({
     type: "question",
     question,
     options: options || [],
     answered: false,
   });
-  broadcast(entry);
+  broadcast(sessionId, entry);
+  io.emit("sessions-changed", getSessionList());
 
   const timeout = 5 * 60 * 1000; // 5 minutes
 
   const promise = new Promise((resolve) => {
     const timer = setTimeout(() => {
-      if (pendingQuestion?.id === questionId) {
-        pendingQuestion = null;
-        // Mark question as timed out
+      if (session.pendingQuestion?.id === questionId) {
+        session.pendingQuestion = null;
         entry.answered = true;
         entry.timedOutAt = Date.now();
-        broadcast({ ...entry, timedOut: true });
+        broadcast(sessionId, { ...entry, timedOut: true });
+        io.emit("sessions-changed", getSessionList());
         resolve({ answer: null, timedOut: true });
       }
     }, timeout);
 
-    pendingQuestion = { id: questionId, resolve, timer };
+    session.pendingQuestion = { id: questionId, resolve, timer };
   });
 
   promise.then((result) => {
@@ -169,46 +252,52 @@ app.post("/api/ask", auth, (req, res) => {
 
 // POST /api/status - from MCP status (non-blocking)
 app.post("/api/status", auth, (req, res) => {
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
   const { status } = req.body;
-  currentStatus = status || "";
-  const entry = store.add({ type: "status", status: currentStatus });
-  broadcast(entry);
-  io.emit("status", currentStatus);
+  session.status = status || "";
+  const entry = session.store.add({ type: "status", status: session.status });
+  broadcast(sessionId, entry);
+  io.emit("session-status", { sessionId, status: session.status });
   res.json({ ok: true });
 });
 
 // GET /api/inbox - from MCP inbox (drain queue)
 app.get("/api/inbox", auth, (req, res) => {
-  const messages = [...inbox];
-  inbox = [];
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
+  const messages = [...session.inbox];
+  session.inbox = [];
   res.json({ messages });
 });
 
 // GET /api/wait-for-instruction - from Stop hook (long-poll)
 app.get("/api/wait-for-instruction", auth, (req, res) => {
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
   const timeout = parseInt(req.query.timeout || "590000", 10);
 
   // If there are already queued messages, return immediately
-  if (inbox.length > 0) {
-    const instruction = inbox.shift();
+  if (session.inbox.length > 0) {
+    const instruction = session.inbox.shift();
     return res.json({ instruction, timedOut: false });
   }
 
-  // Cancel any existing waiter
-  if (instructionWaiter) {
-    clearTimeout(instructionWaiter.timer);
-    instructionWaiter.resolve({ instruction: null, timedOut: true });
+  // Cancel any existing waiter for this session
+  if (session.instructionWaiter) {
+    clearTimeout(session.instructionWaiter.timer);
+    session.instructionWaiter.resolve({ instruction: null, timedOut: true });
   }
 
   const promise = new Promise((resolve) => {
     const timer = setTimeout(() => {
-      if (instructionWaiter?.resolve === resolve) {
-        instructionWaiter = null;
+      if (session.instructionWaiter?.resolve === resolve) {
+        session.instructionWaiter = null;
         resolve({ instruction: null, timedOut: true });
       }
     }, timeout);
 
-    instructionWaiter = { resolve, timer };
+    session.instructionWaiter = { resolve, timer };
   });
 
   promise.then((result) => {
@@ -218,26 +307,29 @@ app.get("/api/wait-for-instruction", auth, (req, res) => {
 
 // POST /api/respond - from browser (resolve pending question)
 app.post("/api/respond", auth, (req, res) => {
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
   const { answer } = req.body;
-  if (!pendingQuestion) {
+  if (!session.pendingQuestion) {
     return res.status(404).json({ error: "No pending question" });
   }
 
-  clearTimeout(pendingQuestion.timer);
-  const qId = pendingQuestion.id;
-  pendingQuestion.resolve({ answer, timedOut: false });
-  pendingQuestion = null;
+  clearTimeout(session.pendingQuestion.timer);
+  const qId = session.pendingQuestion.id;
+  session.pendingQuestion.resolve({ answer, timedOut: false });
+  session.pendingQuestion = null;
 
   // Store user's response
-  const entry = store.add({
+  const entry = session.store.add({
     type: "user",
     message: answer,
     inReplyTo: qId,
   });
-  broadcast(entry);
+  broadcast(sessionId, entry);
+  io.emit("sessions-changed", getSessionList());
 
   // Mark question as answered in store
-  const original = store.messages.find((m) => m.id === qId);
+  const original = session.store.messages.find((m) => m.id === qId);
   if (original) original.answered = true;
 
   res.json({ ok: true });
@@ -245,33 +337,37 @@ app.post("/api/respond", auth, (req, res) => {
 
 // POST /api/send - from browser (add to inbox or resolve waiter)
 app.post("/api/send", auth, (req, res) => {
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "No message" });
 
   // Store user message
-  const entry = store.add({ type: "user", message });
-  broadcast(entry);
+  const entry = session.store.add({ type: "user", message });
+  broadcast(sessionId, entry);
 
   // If there's a waiting stop hook, resolve it immediately
-  if (instructionWaiter) {
-    clearTimeout(instructionWaiter.timer);
-    instructionWaiter.resolve({ instruction: message, timedOut: false });
-    instructionWaiter = null;
+  if (session.instructionWaiter) {
+    clearTimeout(session.instructionWaiter.timer);
+    session.instructionWaiter.resolve({ instruction: message, timedOut: false });
+    session.instructionWaiter = null;
   } else {
     // Queue it for MCP inbox
-    inbox.push(message);
+    session.inbox.push(message);
   }
 
   res.json({ ok: true, id: entry.id });
 });
 
-// GET /api/state - initial state for browser
+// GET /api/state - initial state for browser (per-session)
 app.get("/api/state", auth, (req, res) => {
+  const sessionId = req.query.session || DEFAULT_SESSION;
+  const session = getSession(sessionId);
   res.json({
-    messages: store.all(),
-    status: currentStatus,
-    hasPendingQuestion: !!pendingQuestion,
-    pendingQuestionId: pendingQuestion?.id || null,
+    messages: session.store.all(),
+    status: session.status,
+    hasPendingQuestion: !!session.pendingQuestion,
+    pendingQuestionId: session.pendingQuestion?.id || null,
   });
 });
 
@@ -279,12 +375,9 @@ app.get("/api/state", auth, (req, res) => {
 
 io.on("connection", (socket) => {
   console.log(`Client connected: ${socket.id}`);
-  // Send current state
+  // Send session list and default session state
   socket.emit("init", {
-    messages: store.all(),
-    status: currentStatus,
-    hasPendingQuestion: !!pendingQuestion,
-    pendingQuestionId: pendingQuestion?.id || null,
+    sessions: getSessionList(),
   });
 
   socket.on("disconnect", () => {

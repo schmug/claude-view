@@ -4,6 +4,11 @@
 
 set -euo pipefail
 
+# Dev mode guard: skip hooks when developing claude-view itself
+if [ "${CLAUDE_VIEW_DEV:-}" = "1" ]; then
+  exit 0
+fi
+
 # Read token and URL
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TOKEN_FILE="$SCRIPT_DIR/.claude-view-token"
@@ -19,6 +24,9 @@ URL="${CLAUDE_VIEW_URL:-http://localhost:3456}"
 if [ -z "$TOKEN" ]; then
   exit 0
 fi
+
+# Compute session ID: basename-sha256prefix
+SESSION_ID="$(basename "$(pwd)")-$(printf '%s' "$(pwd)" | sha256sum | cut -c1-8)"
 
 # Read stdin
 INPUT="$(cat)"
@@ -66,7 +74,7 @@ if [ -z "$SUMMARY" ]; then
 fi
 
 # POST to web server (fire-and-forget, 5s timeout)
-curl -s -m 5 -X POST "$URL/api/activity" \
+curl -s -m 5 -X POST "$URL/api/activity?session=$SESSION_ID" \
   -H "Content-Type: application/json" \
   -H "X-Auth-Token: $TOKEN" \
   -d "{\"tool\":\"$TOOL_NAME\",\"summary\":$(printf '%s' "$SUMMARY" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}" \

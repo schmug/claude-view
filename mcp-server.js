@@ -2,7 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { dirname, join, basename } from "path";
+import { createHash } from "crypto";
+import { execFileSync } from "child_process";
 import * as z from "zod/v4";
 
 // All logging to stderr (stdout is MCP protocol)
@@ -22,8 +24,25 @@ if (!TOKEN) {
   log("WARNING: No CLAUDE_VIEW_TOKEN found (env or .claude-view-token file)");
 }
 
+// --- Session ID ---
+
+const cwd = process.cwd();
+const sessionId =
+  basename(cwd) +
+  "-" +
+  createHash("sha256").update(cwd).digest("hex").slice(0, 8);
+
+log("Session ID:", sessionId);
+
+function urlWithSession(path) {
+  const sep = path.includes("?") ? "&" : "?";
+  return `${BASE_URL}${path}${sep}session=${encodeURIComponent(sessionId)}`;
+}
+
+// --- HTTP helpers ---
+
 async function post(path, body) {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(urlWithSession(path), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -39,7 +58,7 @@ async function post(path, body) {
 }
 
 async function get(path) {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(urlWithSession(path), {
     headers: { "X-Auth-Token": TOKEN },
   });
   if (!res.ok) {
@@ -48,6 +67,36 @@ async function get(path) {
   }
   return res.json();
 }
+
+// --- Git helpers ---
+
+function getBranch() {
+  try {
+    return execFileSync("git", ["branch", "--show-current"], {
+      encoding: "utf-8",
+      timeout: 5000,
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+// --- Session registration ---
+
+async function registerSession() {
+  try {
+    await post("/api/session/register", {
+      repoPath: cwd,
+      repoName: basename(cwd),
+      branch: getBranch(),
+    });
+    log("Session registered:", sessionId);
+  } catch (err) {
+    log("Session registration failed (non-fatal):", err.message);
+  }
+}
+
+// --- MCP Server ---
 
 const server = new McpServer({
   name: "claude-view",
@@ -157,6 +206,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   log("MCP server connected via stdio");
+  await registerSession();
 }
 
 main().catch((err) => {
